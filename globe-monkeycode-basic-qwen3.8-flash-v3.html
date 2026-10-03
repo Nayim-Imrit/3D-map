@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Self-contained interactive faceted 3D globe built with Three.js">
+  <title>Facet Globe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07040f;
+      --panel: rgba(14, 8, 28, 0.78);
+      --line: rgba(192, 132, 252, 0.28);
+      --text: #f4edff;
+      --muted: #a898c4;
+      --violet: #c084fc;
+      --cyan: #67e8f9;
+      --pink: #f472b6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 38%, #1a0b32 0%, var(--bg) 62%);
+      color: var(--text);
+      font-family: Sora, system-ui, sans-serif;
+    }
+    #scene {
+      position: fixed;
+      inset: 0;
+      display: block;
+      cursor: grab;
+      touch-action: none;
+    }
+    #scene.dragging { cursor: grabbing; }
+    .hud {
+      position: fixed;
+      z-index: 3;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    }
+    #intro {
+      top: 22px;
+      left: 22px;
+      max-width: min(400px, calc(100vw - 44px));
+      padding: 16px 18px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+      margin-bottom: 8px;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--violet);
+      box-shadow: 0 0 10px var(--violet);
+    }
+    h1 {
+      font-size: clamp(21px, 4vw, 30px);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.08;
+    }
+    #intro p { margin-top: 8px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+    #readout {
+      top: 22px;
+      right: 22px;
+      padding: 14px 16px;
+      text-align: right;
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    #readout .row + .row { margin-top: 9px; }
+    #readout b { display: block; color: var(--text); font-size: 15px; font-weight: 400; margin-top: 2px; }
+    #card {
+      position: fixed;
+      z-index: 4;
+      width: 244px;
+      padding: 15px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 0 28px rgba(192, 132, 252, 0.14);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, calc(-100% - 18px)) scale(0.95);
+      transition: opacity 170ms ease, transform 170ms ease;
+    }
+    #card.show { opacity: 1; transform: translate(-50%, calc(-100% - 18px)) scale(1); }
+    #card .tag {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--pink);
+    }
+    #card h2 { font-size: 19px; font-weight: 700; margin: 5px 0 3px; }
+    #card .coord { font-family: "Share Tech Mono", monospace; font-size: 11.5px; color: var(--cyan); }
+    #card p { margin-top: 9px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+    #card .stat {
+      margin-top: 9px;
+      padding-top: 9px;
+      border-top: 1px solid rgba(192, 132, 252, 0.18);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+      color: var(--violet);
+    }
+    #card .nub {
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 11px;
+      height: 11px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      transform: translateX(-50%) rotate(45deg);
+    }
+    #loader {
+      position: fixed;
+      inset: 0;
+      z-index: 6;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      transition: opacity 450ms ease;
+    }
+    #loader.done { opacity: 0; pointer-events: none; }
+    #loader .ring {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 14px;
+      border: 2px solid rgba(192, 132, 252, 0.2);
+      border-top-color: var(--violet);
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+    #loader span {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--violet);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 640px) {
+      #readout { display: none; }
+      #intro { top: 12px; left: 12px; right: 12px; max-width: none; padding: 12px 14px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #card, #loader { transition: none; }
+      #loader .ring { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="Interactive faceted 3D globe"></canvas>
+
+  <div class="hud" id="intro">
+    <div class="eyebrow">Crystal mesh</div>
+    <h1>Facet Globe</h1>
+    <p>Drag to rotate, scroll to zoom. Hover a beacon for details. Auto-spin pauses while dragging.</p>
+  </div>
+
+  <div class="hud" id="readout">
+    <div class="row">LATITUDE <b id="ro-lat">0.0&deg;</b></div>
+    <div class="row">LONGITUDE <b id="ro-lon">0.0&deg;</b></div>
+    <div class="row">ZOOM <b id="ro-zoom">1.0x</b></div>
+  </div>
+
+  <div id="card" role="tooltip">
+    <div class="tag">City beacon</div>
+    <h2 id="c-name">City</h2>
+    <div class="coord" id="c-coord">0, 0</div>
+    <p id="c-detail"></p>
+    <div class="stat" id="c-stat"></div>
+    <span class="nub"></span>
+  </div>
+
+  <div id="loader">
+    <div>
+      <div class="ring"></div>
+      <span>Tessellating land</span>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const CITIES = [
+      { name: "New York", lat: 40.71, lon: -74.01, stat: "Pop 8.3M · Statue of Liberty" },
+      { name: "London", lat: 51.51, lon: -0.13, stat: "Pop 9.0M · Big Ben" },
+      { name: "Tokyo", lat: 35.68, lon: 139.69, stat: "Pop 14.0M · Shibuya Crossing" },
+      { name: "Sydney", lat: -33.87, lon: 151.21, stat: "Pop 5.3M · Opera House" },
+      { name: "Cairo", lat: 30.04, lon: 31.24, stat: "Pop 10.1M · Pyramids of Giza" },
+      { name: "Rio de Janeiro", lat: -22.91, lon: -43.17, stat: "Pop 6.7M · Christ the Redeemer" },
+      { name: "Dubai", lat: 25.20, lon: 55.27, stat: "Pop 3.6M · Burj Khalifa" },
+      { name: "Mauritius", lat: -20.16, lon: 57.50, stat: "Pop 1.3M · Le Morne Brabant" }
+    ];
+
+    const LAND = [
+      [[-168,71],[-141,70],[-125,71],[-105,73],[-88,73],[-65,70],[-56,60],[-64,54],[-56,51],[-67,47],[-70,41],[-76,35],[-81,25],[-97,26],[-97,16],[-90,14],[-83,9],[-77,8],[-81,12],[-87,16],[-97,16],[-106,22],[-111,24],[-117,33],[-124,40],[-124,48],[-133,54],[-153,59],[-166,64],[-168,71]],
+      [[-82,23],[-78,21],[-73,20],[-68,21],[-62,18],[-64,10],[-71,12],[-78,8],[-81,9],[-84,16],[-88,21],[-82,23]],
+      [[-81,12],[-77,7],[-73,9],[-62,10],[-51,5],[-35,-5],[-34,-8],[-39,-22],[-48,-28],[-53,-34],[-68,-55],[-71,-53],[-75,-47],[-71,-18],[-77,-5],[-80,1],[-78,10],[-81,12]],
+      [[-10,36],[-9,42],[-1,44],[2,51],[-5,58],[-6,62],[5,62],[8,58],[12,55],[10,47],[7,43],[9,39],[16,41],[19,42],[24,45],[30,46],[29,41],[26,35],[28,31],[32,31],[36,36],[42,42],[44,48],[37,54],[30,60],[24,70],[16,69],[24,63],[12,60],[4,54],[-5,48],[-10,43],[-10,36]],
+      [[-17,15],[-16,21],[-8,27],[-6,35],[10,37],[11,33],[20,32],[25,32],[32,31],[33,22],[43,12],[51,12],[43,2],[42,-2],[40,-15],[35,-4],[32,-25],[28,-30],[19,-35],[18,-29],[14,-18],[12,-6],[9,4],[4,5],[-5,5],[-14,7],[-17,15]],
+      [[32,31],[36,28],[44,12],[51,12],[60,25],[70,25],[73,35],[78,36],[80,28],[86,22],[92,22],[97,16],[104,11],[109,14],[109,22],[102,23],[98,28],[94,22],[88,22],[80,22],[75,12],[72,8],[78,7],[80,12],[86,21],[92,21],[94,16],[99,10],[95,1],[104,1],[109,7],[117,5],[122,7],[122,15],[114,23],[122,31],[128,35],[129,41],[140,41],[142,46],[138,51],[129,50],[118,49],[110,42],[95,44],[87,48],[80,45],[75,42],[67,45],[62,38],[55,38],[48,37],[44,40],[40,41],[36,36],[32,31]],
+      [[129,71],[136,71],[162,66],[179,66],[180,62],[165,60],[160,54],[156,58],[142,59],[135,54],[128,50],[125,53],[130,62],[129,71]],
+      [[113,-2],[104,-6],[107,-8],[116,-9],[122,-9],[131,-3],[138,-8],[142,-11],[146,-19],[153,-28],[153,-32],[150,-38],[145,-38],[141,-29],[135,-31],[129,-33],[116,-35],[114,-22],[122,-17],[123,-13],[114,-10],[113,-2]],
+      [[166,-34],[172,-34],[179,-37],[175,-47],[167,-47],[166,-41],[166,-34]],
+      [[-55,83],[-40,83],[-20,81],[-12,73],[-22,69],[-44,60],[-58,67],[-72,78],[-55,83]],
+      [[-180,-62],[-60,-63],[-20,-66],[20,-69],[80,-66],[140,-66],[180,-70],[180,-90],[-180,-90],[-180,-62]],
+      [[43.2,-12.0],[50.5,-12.2],[50.6,-15.8],[49.2,-19.0],[47.0,-25.6],[45.0,-25.4],[43.4,-23.2],[43.2,-16.0],[43.2,-12.0]],
+      [[55.6,-19.6],[59.4,-19.4],[59.6,-21.4],[57.0,-21.6],[55.6,-20.6],[55.6,-19.6]]
+    ];
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const R = 1.62;
+    const canvas = document.getElementById("scene");
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x07040f, 0);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 0.48, 4.5);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = !reduced;
+    controls.dampingFactor = 0.075;
+    controls.minDistance = 2.4;
+    controls.maxDistance = 8.5;
+    controls.enablePan = false;
+    controls.rotateSpeed = 0.5;
+    controls.zoomSpeed = 0.75;
+
+    scene.add(new THREE.AmbientLight(0xc4b5fd, 0.55));
+    const key = new THREE.DirectionalLight(0xffffff, 1.25);
+    key.position.set(5, 3, 4);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x67e8f9, 0.35);
+    fill.position.set(-4, -1, -3);
+    scene.add(fill);
+
+    function buildMask() {
+      const w = 1024, h = 512;
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#fff";
+      LAND.forEach((poly) => {
+        ctx.beginPath();
+        poly.forEach(([lon, lat], i) => {
+          const x = (lon + 180) / 360 * w;
+          const y = (90 - lat) / 180 * h;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.fill();
+      });
+      return { data: ctx.getImageData(0, 0, w, h).data, w, h };
+    }
+
+    function isLand(mask, lat, lon) {
+      let x = Math.floor((lon + 180) / 360 * mask.w);
+      let y = Math.floor((90 - lat) / 180 * mask.h);
+      x = ((x % mask.w) + mask.w) % mask.w;
+      y = Math.min(mask.h - 1, Math.max(0, y));
+      return mask.data[(y * mask.w + x) * 4] > 128;
+    }
+
+    const globe = new THREE.Group();
+    scene.add(globe);
+
+    const mask = buildMask();
+    const geo = new THREE.IcosahedronGeometry(R, reduced ? 4 : 5);
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const landCol = new THREE.Color(0x6d28d9);
+    const landHi = new THREE.Color(0x67e8f9);
+    const oceanCol = new THREE.Color(0x120826);
+    for (let i = 0; i < pos.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(pos, i).normalize();
+      const lat = Math.asin(v.y) * 180 / Math.PI;
+      const lon = Math.atan2(v.z, v.x) * 180 / Math.PI;
+      const col = isLand(mask, lat, lon)
+        ? landCol.clone().lerp(landHi, Math.min(1, Math.abs(lat) / 90) * 0.55 + Math.random() * 0.2)
+        : oceanCol.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.04);
+      colors[i * 3] = col.r;
+      colors[i * 3 + 1] = col.g;
+      colors[i * 3 + 2] = col.b;
+    }
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+
+    const earth = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
+      vertexColors: true,
+      flatShading: true,
+      shininess: 28,
+      specular: new THREE.Color(0x9d7af0)
+    }));
+    globe.add(earth);
+
+    const wire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(geo),
+      new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.18 })
+    );
+    wire.scale.setScalar(1.002);
+    globe.add(wire);
+
+    const atmoVert = `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+    const atmoFrag = `
+      varying vec3 vNormal;
+      uniform vec3 uColor;
+      void main() {
+        float i = pow(0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
+        gl_FragColor = vec4(uColor, 1.0) * i;
+      }
+    `;
+    globe.add(new THREE.Mesh(
+      new THREE.SphereGeometry(R * 1.2, 64, 48),
+      new THREE.ShaderMaterial({
+        vertexShader: atmoVert,
+        fragmentShader: atmoFrag,
+        uniforms: { uColor: { value: new THREE.Color(0xb794f6) } },
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false
+      })
+    ));
+
+    const starCount = reduced ? 900 : 2200;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = 22 + Math.random() * 60;
+      const t = Math.random() * Math.PI * 2;
+      const p = Math.acos(2 * Math.random() - 1);
+      starPos[i * 3] = r * Math.sin(p) * Math.cos(t);
+      starPos[i * 3 + 1] = r * Math.sin(p) * Math.sin(t);
+      starPos[i * 3 + 2] = r * Math.cos(p);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
+      color: 0xf5d0fe, size: 0.13, transparent: true, opacity: 0.85, depthWrite: false
+    })));
+
+    function latLonToVec(lat, lon, r) {
+      const phi = (90 - lat) * Math.PI / 180;
+      const theta = (lon + 180) * Math.PI / 180;
+      return new THREE.Vector3(
+        -r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta)
+      );
+    }
+
+    const pinGeo = new THREE.OctahedronGeometry(0.028, 0);
+    const pinMat = new THREE.MeshBasicMaterial({ color: 0xf472b6 });
+    const pinGroup = new THREE.Group();
+    globe.add(pinGroup);
+    const pins = [];
+    const pulses = [];
+
+    CITIES.forEach((city) => {
+      const pos = latLonToVec(city.lat, city.lon, R + 0.02);
+      const pin = new THREE.Mesh(pinGeo, pinMat);
+      pin.position.copy(pos);
+      pin.userData = city;
+      const ring = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.22, depthWrite: false })
+      );
+      ring.position.copy(pos);
+      pulses.push({ mesh: ring, phase: Math.random() * Math.PI * 2 });
+      pinGroup.add(pin, ring);
+      pins.push(pin);
+    });
+
+    const arcMat = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.32 });
+    function arc(a, b) {
+      const start = latLonToVec(a.lat, a.lon, R + 0.03);
+      const end = latLonToVec(b.lat, b.lon, R + 0.03);
+      const mid = start.clone().add(end).normalize().multiplyScalar(R * 1.45);
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+      return new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)), arcMat);
+    }
+    [[0,1],[1,2],[2,3],[0,4],[4,6],[6,7],[7,2],[5,0],[3,7]].forEach(([i, j]) => globe.add(arc(CITIES[i], CITIES[j])));
+
+    const card = document.getElementById("card");
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const world = new THREE.Vector3();
+    const ndc = new THREE.Vector3();
+    let hovered = null;
+    let pinned = null;
+    let autoSpin = !reduced;
+
+    function facing(pin) {
+      pin.getWorldPosition(world);
+      const toCam = camera.position.clone().sub(world).normalize();
+      return world.clone().normalize().dot(toCam) > 0.1;
+    }
+
+    function show(city, pin) {
+      document.getElementById("c-name").textContent = city.name;
+      const ns = city.lat >= 0 ? "N" : "S";
+      const ew = city.lon >= 0 ? "E" : "W";
+      document.getElementById("c-coord").textContent =
+        `${Math.abs(city.lat).toFixed(2)}° ${ns} · ${Math.abs(city.lon).toFixed(2)}° ${ew}`;
+      document.getElementById("c-detail").textContent =
+        `A major anchor on the global network. Coordinates locked for ${city.name}.`;
+      document.getElementById("c-stat").textContent = city.stat;
+      card.classList.add("show");
+      hovered = pin;
+      canvas.style.cursor = "pointer";
+    }
+
+    function hide() {
+      if (pinned) return;
+      card.classList.remove("show");
+      hovered = null;
+      canvas.style.cursor = canvas.classList.contains("dragging") ? "grabbing" : "grab";
+    }
+
+    function place() {
+      if (!hovered) return;
+      if (!facing(hovered)) { hide(); return; }
+      hovered.getWorldPosition(world);
+      ndc.copy(world).project(camera);
+      card.style.left = (ndc.x * 0.5 + 0.5) * window.innerWidth + "px";
+      card.style.top = (-ndc.y * 0.5 + 0.5) * window.innerHeight + "px";
+    }
+
+    function castAt(ev) {
+      const r = canvas.getBoundingClientRect();
+      pointer.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      return raycaster.intersectObjects(pins);
+    }
+
+    canvas.addEventListener("pointermove", (ev) => {
+      const hits = castAt(ev);
+      if (hits.length && facing(hits[0].object)) show(hits[0].object.userData, hits[0].object);
+      else hide();
+    });
+    canvas.addEventListener("pointerleave", () => { if (!pinned) hide(); });
+    canvas.addEventListener("click", (ev) => {
+      const hits = castAt(ev);
+      if (hits.length && facing(hits[0].object)) {
+        pinned = hits[0].object;
+        show(hits[0].object.userData, hits[0].object);
+      } else {
+        pinned = null;
+        hide();
+      }
+    });
+
+    controls.addEventListener("start", () => {
+      autoSpin = false;
+      canvas.classList.add("dragging");
+    });
+    controls.addEventListener("end", () => {
+      autoSpin = !reduced;
+      canvas.classList.remove("dragging");
+    });
+
+    function updateReadout() {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const look = camera.position.clone().add(dir).normalize();
+      const lat = Math.asin(THREE.MathUtils.clamp(look.y, -1, 1)) * 180 / Math.PI;
+      const lon = Math.atan2(look.x, -look.z) * 180 / Math.PI;
+      document.getElementById("ro-lat").textContent = Math.abs(lat).toFixed(1) + "° " + (lat >= 0 ? "N" : "S");
+      document.getElementById("ro-lon").textContent = Math.abs(lon).toFixed(1) + "° " + (lon >= 0 ? "E" : "W");
+      document.getElementById("ro-zoom").textContent = (4.5 / camera.position.length()).toFixed(2) + "x";
+    }
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      const t = clock.elapsedTime;
+      if (autoSpin) globe.rotation.y += dt * 0.13;
+      pulses.forEach((p) => {
+        p.mesh.scale.setScalar(reduced ? 1 : 1 + Math.sin(t * 2.4 + p.phase) * 0.5);
+      });
+      pinGroup.children.forEach((obj) => {
+        if (obj.geometry === pinGeo) obj.rotation.y += dt * 1.4;
+      });
+      controls.update();
+      place();
+      updateReadout();
+      renderer.render(scene, camera);
+    }
+    animate();
+    requestAnimationFrame(() => document.getElementById("loader").classList.add("done"));
+  </script>
+</body>
+</html>

@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive stylized 3D globe with city markers, built with Three.js">
+  <title>Lumina Globe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #030712;
+      --panel: rgba(6, 12, 28, 0.78);
+      --line: rgba(94, 234, 212, 0.28);
+      --text: #e8fdff;
+      --muted: #8aa4b8;
+      --teal: #5eead4;
+      --cyan: #38bdf8;
+      --amber: #fbbf24;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "DM Sans", system-ui, sans-serif;
+    }
+    #globe-canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      touch-action: none;
+    }
+    #globe-canvas.is-drag { cursor: grabbing; }
+    .vignette {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 50% 45%, transparent 38%, rgba(3, 7, 18, 0.72) 100%);
+    }
+    .top {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 3;
+      max-width: min(420px, calc(100vw - 40px));
+      padding: 16px 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .kicker {
+      font-size: 11px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--teal);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    h1 {
+      font-family: Syne, sans-serif;
+      font-weight: 800;
+      font-size: clamp(22px, 4vw, 32px);
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+    .hint {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .hint kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      font-size: 11px;
+      color: var(--teal);
+    }
+    #tooltip {
+      position: fixed;
+      z-index: 4;
+      min-width: 220px;
+      max-width: 280px;
+      padding: 14px 16px 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(94, 234, 212, 0.12);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, calc(-100% - 16px)) scale(0.96);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+    #tooltip.is-on {
+      opacity: 1;
+      transform: translate(-50%, calc(-100% - 16px)) scale(1);
+    }
+    #tooltip .city {
+      font-family: Syne, sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+    #tooltip .coords {
+      margin: 4px 0 8px;
+      font-size: 12px;
+      color: var(--teal);
+      letter-spacing: 0.04em;
+    }
+    #tooltip .detail {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    #tooltip .pop {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(94, 234, 212, 0.16);
+      font-size: 12px;
+      color: var(--amber);
+    }
+    .dot {
+      position: absolute;
+      left: 50%;
+      bottom: -7px;
+      width: 10px;
+      height: 10px;
+      background: var(--teal);
+      border-radius: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 0 10px var(--teal);
+    }
+    .coords-row {
+      display: flex;
+      gap: 14px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(94, 234, 212, 0.16);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .coords-row b {
+      display: block;
+      color: var(--text);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    aside.hud {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 3;
+      width: min(280px, calc(100vw - 40px));
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .aside-title {
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--amber);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 44px;
+    }
+    .toggle-row span { font-size: 13px; }
+    button.switch {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(8, 16, 32, 0.9);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+    }
+    button.switch[aria-pressed="true"] {
+      background: rgba(94, 234, 212, 0.18);
+      border-color: var(--teal);
+      box-shadow: 0 0 12px rgba(94, 234, 212, 0.28);
+    }
+    button.switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #9fb4c8;
+      transition: transform 200ms ease, background 200ms ease;
+    }
+    button.switch[aria-pressed="true"]::after {
+      transform: translateX(20px);
+      background: var(--teal);
+    }
+    button.switch:focus-visible,
+    button.icon-btn:focus-visible,
+    .city-btn:focus-visible {
+      outline: 2px solid var(--teal);
+      outline-offset: 3px;
+    }
+    .city-list {
+      display: grid;
+      gap: 4px;
+      max-height: min(36vh, 300px);
+      overflow: auto;
+      margin-top: 4px;
+    }
+    .city-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-height: 44px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 180ms ease, border-color 180ms ease;
+    }
+    .city-btn:hover,
+    .city-btn[aria-current="true"] {
+      background: rgba(94, 234, 212, 0.1);
+      border-color: rgba(94, 234, 212, 0.28);
+    }
+    .city-btn small { color: var(--muted); }
+    footer.hud {
+      position: fixed;
+      left: 20px;
+      bottom: 20px;
+      z-index: 3;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-width: calc(100vw - 40px);
+    }
+    button.icon-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      backdrop-filter: blur(16px);
+      transition: border-color 180ms ease, transform 150ms ease;
+    }
+    button.icon-btn:hover { border-color: var(--teal); }
+    button.icon-btn:active { transform: scale(0.97); }
+    button.icon-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+    .help {
+      color: var(--muted);
+      font-size: 12px;
+      align-self: center;
+      padding: 0 6px;
+    }
+    .status {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 3;
+      max-width: min(320px, calc(100vw - 40px));
+      padding: 14px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .status h2 {
+      font-family: Syne, sans-serif;
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+    .status p { color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .status .meta {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--teal);
+    }
+    @media (max-width: 768px) {
+      .top { top: 12px; left: 12px; padding: 12px 14px; }
+      aside.hud {
+        top: auto;
+        right: 12px;
+        bottom: 76px;
+        width: min(240px, calc(100vw - 24px));
+      }
+      footer.hud { left: 12px; bottom: 12px; }
+      .status, .help { display: none; }
+      .city-list { max-height: 22vh; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #tooltip, button.switch::after, button.icon-btn, .city-btn { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="globe-canvas" aria-label="Interactive 3D globe"></canvas>
+  <div class="vignette"></div>
+  <header class="top">
+    <div class="kicker">Orbital view</div>
+    <h1>Lumina Globe</h1>
+    <p class="hint">Drag to orbit. Scroll to zoom. Hover a pin or pick a station to fly there.</p>
+    <div class="coords-row" aria-live="polite">
+      <div>LAT <b id="lat-read">00.00</b></div>
+      <div>LON <b id="lon-read">000.00</b></div>
+      <div>ALT <b id="alt-read">4.35</b></div>
+    </div>
+  </header>
+  <aside class="hud" id="controls">
+    <div class="aside-title">Layers</div>
+    <div class="toggle-row">
+      <span id="lbl-rotate">Auto rotate</span>
+      <button class="switch" id="tog-rotate" type="button" role="switch" aria-checked="true" aria-pressed="true" aria-labelledby="lbl-rotate"></button>
+    </div>
+    <div class="toggle-row">
+      <span id="lbl-clouds">Cloud cover</span>
+      <button class="switch" id="tog-clouds" type="button" role="switch" aria-checked="true" aria-pressed="true" aria-labelledby="lbl-clouds"></button>
+    </div>
+    <div class="toggle-row">
+      <span id="lbl-atm">Atmosphere</span>
+      <button class="switch" id="tog-atm" type="button" role="switch" aria-checked="true" aria-pressed="true" aria-labelledby="lbl-atm"></button>
+    </div>
+    <div class="toggle-row">
+      <span id="lbl-arcs">City arcs</span>
+      <button class="switch" id="tog-arcs" type="button" role="switch" aria-checked="true" aria-pressed="true" aria-labelledby="lbl-arcs"></button>
+    </div>
+    <div class="aside-title" style="margin-top:10px">Ground stations</div>
+    <div class="city-list" id="city-list" role="listbox" aria-label="Ground stations"></div>
+  </aside>
+  <div id="tooltip" role="tooltip">
+    <div class="city" id="tt-name">City</div>
+    <div class="coords" id="tt-coords">0, 0</div>
+    <p class="detail" id="tt-detail"></p>
+    <div class="pop" id="tt-pop"></div>
+    <span class="dot" aria-hidden="true"></span>
+  </div>
+  <footer class="hud">
+    <button class="icon-btn" id="btn-reset" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      Reset view
+    </button>
+    <button class="icon-btn" id="btn-pause" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
+      Pause
+    </button>
+    <span class="help">Arrows rotate · +/- zoom · Space pause</span>
+  </footer>
+  <div class="status" id="status-card">
+    <div class="kicker">Selected node</div>
+    <h2 id="stat-name">EARTH</h2>
+    <p id="stat-desc">Idle orbit. Choose a ground station to inspect coordinates and fly to target.</p>
+    <div class="meta">
+      <span id="stat-lat">--</span>
+      <span id="stat-lon">--</span>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const CITIES = [
+      { name: "New York", region: "USA", lat: 40.71, lon: -74.01, pop: "8.3 million", detail: "Harbor megacity. Landmark: Statue of Liberty." },
+      { name: "London", region: "UK", lat: 51.51, lon: -0.13, pop: "9.0 million", detail: "On the Thames. Landmark: Big Ben and the Houses of Parliament." },
+      { name: "Tokyo", region: "Japan", lat: 35.68, lon: 139.69, pop: "14.0 million", detail: "Pacific capital. Landmark: Tokyo Tower and Shibuya Crossing." },
+      { name: "Sydney", region: "Australia", lat: -33.87, lon: 151.21, pop: "5.3 million", detail: "Tasman Sea harbor. Landmark: Sydney Opera House." },
+      { name: "Cairo", region: "Egypt", lat: 30.04, lon: 31.24, pop: "10.1 million", detail: "Nile metropolis. Landmark: Pyramids of Giza." },
+      { name: "Rio de Janeiro", region: "Brazil", lat: -22.91, lon: -43.17, pop: "6.7 million", detail: "Atlantic coast. Landmark: Christ the Redeemer." },
+      { name: "Dubai", region: "UAE", lat: 25.20, lon: 55.27, pop: "3.6 million", detail: "Persian Gulf port. Landmark: Burj Khalifa." },
+      { name: "Singapore", region: "Singapore", lat: 1.35, lon: 103.82, pop: "5.9 million", detail: "Equatorial city-state. Landmark: Marina Bay Sands." },
+      { name: "Mauritius", region: "Indian Ocean", lat: -20.16, lon: 57.50, pop: "1.3 million", detail: "Volcanic island republic. Landmark: Le Morne Brabant." }
+    ];
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const RADIUS = 1.6;
+    const canvas = document.getElementById("globe-canvas");
+    const tooltip = document.getElementById("tooltip");
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x030712, 1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 0.42, 4.35);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = !reduced;
+    controls.dampingFactor = 0.07;
+    controls.minDistance = 2.3;
+    controls.maxDistance = 8.5;
+    controls.enablePan = false;
+    controls.rotateSpeed = 0.48;
+    controls.zoomSpeed = 0.7;
+
+    scene.add(new THREE.AmbientLight(0x7eb6d9, 0.55));
+    const sun = new THREE.DirectionalLight(0xfff6e5, 1.65);
+    sun.position.set(5.5, 2.4, 3.8);
+    scene.add(sun);
+    const rim = new THREE.DirectionalLight(0x38bdf8, 0.35);
+    rim.position.set(-4, -1.2, -3);
+    scene.add(rim);
+
+    function latLonToVec(lat, lon, r) {
+      const phi = (90 - lat) * Math.PI / 180;
+      const theta = (lon + 180) * Math.PI / 180;
+      return new THREE.Vector3(
+        -r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta)
+      );
+    }
+
+    function fmtCoord(lat, lon) {
+      const ns = lat >= 0 ? "N" : "S";
+      const ew = lon >= 0 ? "E" : "W";
+      return `${Math.abs(lat).toFixed(2)}° ${ns}  ·  ${Math.abs(lon).toFixed(2)}° ${ew}`;
+    }
+
+    function drawPoly(ctx, w, h, pts, fill, stroke) {
+      ctx.beginPath();
+      pts.forEach(([lon, lat], i) => {
+        const x = (lon + 180) / 360 * w;
+        const y = (90 - lat) / 180 * h;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+    }
+
+    function makeMaps() {
+      const w = 2048, h = 1024;
+      const land = [
+        [[-168,71],[-141,70],[-125,71],[-105,73],[-88,73],[-65,70],[-56,60],[-64,54],[-56,51],[-67,47],[-70,41],[-76,35],[-81,25],[-97,26],[-97,16],[-90,14],[-83,9],[-77,8],[-81,12],[-87,16],[-97,16],[-106,22],[-111,24],[-117,33],[-124,40],[-124,48],[-133,54],[-153,59],[-166,64],[-168,71]],
+        [[-82,23],[-78,21],[-73,20],[-68,21],[-62,18],[-64,10],[-71,12],[-78,8],[-81,9],[-84,16],[-88,21],[-82,23]],
+        [[-81,12],[-77,7],[-73,9],[-62,10],[-51,5],[-35,-5],[-34,-8],[-39,-22],[-48,-28],[-53,-34],[-68,-55],[-71,-53],[-75,-47],[-71,-18],[-77,-5],[-80,1],[-78,10],[-81,12]],
+        [[-10,36],[-9,42],[-1,44],[2,51],[-5,58],[-6,62],[5,62],[8,58],[12,55],[10,47],[7,43],[9,39],[16,41],[19,42],[24,45],[30,46],[29,41],[26,35],[28,31],[32,31],[36,36],[42,42],[44,48],[37,54],[30,60],[24,70],[16,69],[24,63],[12,60],[4,54],[-5,48],[-10,43],[-10,36]],
+        [[-17,15],[-16,21],[-8,27],[-6,35],[10,37],[11,33],[20,32],[25,32],[32,31],[33,22],[43,12],[51,12],[43,2],[42,-2],[40,-15],[35,-4],[32,-25],[28,-30],[19,-35],[18,-29],[14,-18],[12,-6],[9,4],[4,5],[-5,5],[-14,7],[-17,15]],
+        [[32,31],[36,28],[44,12],[51,12],[60,25],[70,25],[73,35],[78,36],[80,28],[86,22],[92,22],[97,16],[104,11],[109,14],[109,22],[102,23],[98,28],[94,22],[88,22],[80,22],[75,12],[72,8],[78,7],[80,12],[86,21],[92,21],[94,16],[99,10],[95,1],[104,1],[109,7],[117,5],[122,7],[122,15],[114,23],[122,31],[128,35],[129,41],[140,41],[142,46],[138,51],[129,50],[118,49],[110,42],[95,44],[87,48],[80,45],[75,42],[67,45],[62,38],[55,38],[48,37],[44,40],[40,41],[36,36],[32,31]],
+        [[129,71],[136,71],[162,66],[179,66],[180,62],[165,60],[160,54],[156,58],[142,59],[135,54],[128,50],[125,53],[130,62],[129,71]],
+        [[113,-2],[104,-6],[107,-8],[116,-9],[122,-9],[131,-3],[138,-8],[142,-11],[146,-19],[153,-28],[153,-32],[150,-38],[145,-38],[141,-29],[135,-31],[129,-33],[116,-35],[114,-22],[122,-17],[123,-13],[114,-10],[113,-2]],
+        [[166,-34],[172,-34],[179,-37],[175,-47],[167,-47],[166,-41],[166,-34]],
+        [[-55,83],[-40,83],[-20,81],[-12,73],[-22,69],[-44,60],[-58,67],[-72,78],[-55,83]],
+        [[-180,-62],[-60,-63],[-20,-66],[20,-69],[80,-66],[140,-66],[180,-70],[180,-90],[-180,-90],[-180,-62]],
+        [[43.2,-12.0],[50.5,-12.2],[50.6,-15.8],[49.2,-19.0],[47.0,-25.6],[45.0,-25.4],[43.4,-23.2],[43.2,-16.0],[43.2,-12.0]],
+        [[55.6,-19.6],[59.4,-19.4],[59.6,-21.4],[57.0,-21.6],[55.6,-20.6],[55.6,-19.6]]
+      ];
+
+      const day = document.createElement("canvas");
+      day.width = w; day.height = h;
+      const d = day.getContext("2d");
+      const ocean = d.createLinearGradient(0, 0, 0, h);
+      ocean.addColorStop(0, "#062033");
+      ocean.addColorStop(0.5, "#0a3a5c");
+      ocean.addColorStop(1, "#062033");
+      d.fillStyle = ocean;
+      d.fillRect(0, 0, w, h);
+      d.strokeStyle = "rgba(56,189,248,0.10)";
+      d.lineWidth = 1;
+      for (let i = 1; i < 18; i++) {
+        d.beginPath(); d.moveTo(0, i * h / 18); d.lineTo(w, i * h / 18); d.stroke();
+      }
+      for (let i = 1; i < 36; i++) {
+        d.beginPath(); d.moveTo(i * w / 36, 0); d.lineTo(i * w / 36, h); d.stroke();
+      }
+      d.lineWidth = 2.2;
+      d.shadowColor = "#5eead4";
+      d.shadowBlur = 12;
+      land.forEach((p) => drawPoly(d, w, h, p, "rgba(14, 90, 78, 0.92)", "#5eead4"));
+      d.shadowBlur = 0;
+      d.globalAlpha = 0.22;
+      land.forEach((p) => drawPoly(d, w, h, p, "#94a3b8", null));
+      d.globalAlpha = 1;
+      const iceN = d.createLinearGradient(0, 0, 0, h * 0.1);
+      iceN.addColorStop(0, "rgba(226,247,255,0.85)");
+      iceN.addColorStop(1, "rgba(226,247,255,0)");
+      d.fillStyle = iceN; d.fillRect(0, 0, w, h * 0.1);
+      const iceS = d.createLinearGradient(0, h, 0, h * 0.9);
+      iceS.addColorStop(0, "rgba(226,247,255,0.9)");
+      iceS.addColorStop(1, "rgba(226,247,255,0)");
+      d.fillStyle = iceS; d.fillRect(0, h * 0.9, w, h * 0.1);
+
+      const bump = document.createElement("canvas");
+      bump.width = 1024; bump.height = 512;
+      const b = bump.getContext("2d");
+      b.fillStyle = "#2a2a2a";
+      b.fillRect(0, 0, 1024, 512);
+      land.forEach((p) => drawPoly(b, 1024, 512, p, "#c8c8c8", "#eee"));
+
+      const spec = document.createElement("canvas");
+      spec.width = 1024; spec.height = 512;
+      const s = spec.getContext("2d");
+      s.fillStyle = "#dceeff";
+      s.fillRect(0, 0, 1024, 512);
+      land.forEach((p) => drawPoly(s, 1024, 512, p, "#1a1a1a", null));
+
+      const clouds = document.createElement("canvas");
+      clouds.width = w; clouds.height = h;
+      const c = clouds.getContext("2d");
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = "rgba(255,255,255,0.55)";
+      for (let i = 0; i < 220; i++) {
+        const x = Math.random() * w;
+        const y = 80 + Math.random() * (h - 160);
+        const rw = 40 + Math.random() * 180;
+        const rh = 12 + Math.random() * 36;
+        c.globalAlpha = 0.08 + Math.random() * 0.18;
+        c.beginPath();
+        c.ellipse(x, y, rw, rh, Math.random() * 0.6, 0, Math.PI * 2);
+        c.fill();
+      }
+
+      return {
+        day: new THREE.CanvasTexture(day),
+        bump: new THREE.CanvasTexture(bump),
+        spec: new THREE.CanvasTexture(spec),
+        clouds: new THREE.CanvasTexture(clouds)
+      };
+    }
+
+    const maps = makeMaps();
+    maps.day.colorSpace = THREE.SRGBColorSpace;
+    maps.day.anisotropy = 8;
+    maps.clouds.colorSpace = THREE.SRGBColorSpace;
+    maps.clouds.anisotropy = 4;
+
+    const globe = new THREE.Group();
+    scene.add(globe);
+
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(RADIUS, 96, 64),
+      new THREE.MeshPhongMaterial({
+        map: maps.day,
+        bumpMap: maps.bump,
+        bumpScale: 0.035,
+        specularMap: maps.spec,
+        specular: new THREE.Color(0x88c4e8),
+        shininess: 18,
+        emissive: new THREE.Color(0x0b2a36),
+        emissiveIntensity: 0.45
+      })
+    );
+    globe.add(earth);
+
+    const atmoVert = `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+    const atmoFrag = `
+      varying vec3 vNormal;
+      uniform vec3 uColor;
+      uniform float uPow;
+      uniform float uOff;
+      void main() {
+        float i = pow(uOff - dot(vNormal, vec3(0.0, 0.0, 1.0)), uPow);
+        gl_FragColor = vec4(uColor, 1.0) * i;
+      }
+    `;
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(RADIUS * 1.18, 64, 48),
+      new THREE.ShaderMaterial({
+        vertexShader: atmoVert,
+        fragmentShader: atmoFrag,
+        uniforms: {
+          uColor: { value: new THREE.Color(0x4cc9f0) },
+          uPow: { value: 3.2 },
+          uOff: { value: 0.72 }
+        },
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false
+      })
+    );
+    globe.add(halo);
+
+    const innerAir = new THREE.Mesh(
+      new THREE.SphereGeometry(RADIUS * 1.03, 64, 48),
+      new THREE.ShaderMaterial({
+        vertexShader: atmoVert,
+        fragmentShader: atmoFrag,
+        uniforms: {
+          uColor: { value: new THREE.Color(0x22d3ee) },
+          uPow: { value: 2.0 },
+          uOff: { value: 0.55 }
+        },
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        depthWrite: false
+      })
+    );
+    globe.add(innerAir);
+
+    const clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(RADIUS * 1.018, 64, 48),
+      new THREE.MeshLambertMaterial({
+        map: maps.clouds,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false
+      })
+    );
+    globe.add(clouds);
+
+    const starCount = reduced ? 1200 : 2600;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = 36 + Math.random() * 70;
+      const t = Math.random() * Math.PI * 2;
+      const p = Math.acos(2 * Math.random() - 1);
+      starPos[i * 3] = r * Math.sin(p) * Math.cos(t);
+      starPos[i * 3 + 1] = r * Math.sin(p) * Math.sin(t);
+      starPos[i * 3 + 2] = r * Math.cos(p);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
+      color: 0xdbeafe, size: 0.11, transparent: true, opacity: 0.85, depthWrite: false
+    })));
+
+    const pinGeo = new THREE.SphereGeometry(0.022, 16, 16);
+    const pinMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    const glowGeo = new THREE.SphereGeometry(0.046, 16, 16);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x5eead4, transparent: true, opacity: 0.38, depthWrite: false
+    });
+    const pins = [];
+    const pinGroup = new THREE.Group();
+    globe.add(pinGroup);
+
+    CITIES.forEach((city) => {
+      const pos = latLonToVec(city.lat, city.lon, RADIUS + 0.02);
+      const pin = new THREE.Mesh(pinGeo, pinMat);
+      pin.position.copy(pos);
+      pin.userData = city;
+      const glow = new THREE.Mesh(glowGeo, glowMat);
+      glow.position.copy(pos);
+      glow.userData = { pulse: Math.random() * Math.PI * 2 };
+      pin.userData.glow = glow;
+      pinGroup.add(pin);
+      pinGroup.add(glow);
+      pins.push(pin);
+    });
+
+    const arcGroup = new THREE.Group();
+    globe.add(arcGroup);
+    const arcMat = new THREE.LineBasicMaterial({ color: 0x5eead4, transparent: true, opacity: 0.32 });
+    function makeArc(a, b) {
+      const start = latLonToVec(a.lat, a.lon, RADIUS + 0.03);
+      const end = latLonToVec(b.lat, b.lon, RADIUS + 0.03);
+      const mid = start.clone().add(end).normalize().multiplyScalar(RADIUS * 1.35);
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+      return new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(48)), arcMat);
+    }
+    [[0,1],[1,2],[2,3],[0,4],[4,6],[6,7],[7,2],[5,0],[3,7],[8,4],[8,6],[8,7]].forEach(([i, j]) => {
+      arcGroup.add(makeArc(CITIES[i], CITIES[j]));
+    });
+
+    const state = {
+      autoRotate: !reduced,
+      clouds: true,
+      atmosphere: true,
+      arcs: true,
+      paused: false,
+      selected: null
+    };
+    let spinning = state.autoRotate;
+    let hovered = null;
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const world = new THREE.Vector3();
+    const ndc = new THREE.Vector3();
+
+    function setPointer(ev) {
+      const r = canvas.getBoundingClientRect();
+      pointer.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+    }
+
+    function pinFacing(pin) {
+      pin.getWorldPosition(world);
+      const toCam = camera.position.clone().sub(world).normalize();
+      return world.clone().normalize().dot(toCam) > 0.12;
+    }
+
+    function showTooltip(city, pin) {
+      document.getElementById("tt-name").textContent = city.name;
+      document.getElementById("tt-coords").textContent = fmtCoord(city.lat, city.lon);
+      document.getElementById("tt-detail").textContent = city.detail;
+      document.getElementById("tt-pop").textContent = "Population  " + city.pop;
+      tooltip.classList.add("is-on");
+      hovered = pin;
+      canvas.style.cursor = "pointer";
+    }
+
+    function hideTooltip() {
+      tooltip.classList.remove("is-on");
+      hovered = null;
+      canvas.style.cursor = canvas.classList.contains("is-drag") ? "grabbing" : "grab";
+    }
+
+    function placeTooltip() {
+      if (!hovered) return;
+      if (!pinFacing(hovered)) { hideTooltip(); return; }
+      hovered.getWorldPosition(world);
+      ndc.copy(world).project(camera);
+      const x = (ndc.x * 0.5 + 0.5) * window.innerWidth;
+      const y = (-ndc.y * 0.5 + 0.5) * window.innerHeight;
+      tooltip.style.left = x + "px";
+      tooltip.style.top = y + "px";
+    }
+
+    function pick(ev) {
+      setPointer(ev);
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(pins);
+      if (hits.length && pinFacing(hits[0].object)) {
+        showTooltip(hits[0].object.userData, hits[0].object);
+      } else {
+        hideTooltip();
+      }
+    }
+
+    canvas.addEventListener("pointermove", pick);
+    canvas.addEventListener("click", (ev) => {
+      setPointer(ev);
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(pins);
+      if (hits.length && pinFacing(hits[0].object)) {
+        selectCity(hits[0].object.userData, true);
+      }
+    });
+    canvas.addEventListener("pointerleave", hideTooltip);
+
+    function setSwitch(btn, on) {
+      btn.setAttribute("aria-pressed", String(on));
+      btn.setAttribute("aria-checked", String(on));
+    }
+
+    function fmtHud(n, pos, neg) {
+      const v = Math.abs(n).toFixed(2);
+      return n >= 0 ? v + pos : v + neg;
+    }
+
+    function updateHud() {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const look = camera.position.clone().add(dir).normalize();
+      const lat = 90 - (Math.acos(THREE.MathUtils.clamp(look.y, -1, 1)) * 180 / Math.PI);
+      const lon = ((Math.atan2(look.z, -look.x) * 180 / Math.PI) + 180) % 360 - 180;
+      document.getElementById("lat-read").textContent = fmtHud(lat, "N", "S");
+      document.getElementById("lon-read").textContent = fmtHud(lon, "E", "W");
+      document.getElementById("alt-read").textContent = camera.position.length().toFixed(2);
+    }
+
+    function selectCity(city, fly) {
+      state.selected = city;
+      document.getElementById("stat-name").textContent = city.name.toUpperCase();
+      document.getElementById("stat-desc").textContent = city.detail;
+      document.getElementById("stat-lat").textContent = fmtHud(city.lat, "N", "S");
+      document.getElementById("stat-lon").textContent = fmtHud(city.lon, "E", "W");
+      document.querySelectorAll(".city-btn").forEach((btn) => {
+        btn.setAttribute("aria-current", btn.dataset.name === city.name ? "true" : "false");
+      });
+      const pin = pins.find((p) => p.userData.name === city.name);
+      if (pin) showTooltip(city, pin);
+      if (fly) {
+        const target = latLonToVec(city.lat, city.lon, 3.35);
+        const start = camera.position.clone();
+        const t0 = performance.now();
+        const dur = reduced ? 1 : 900;
+        function step(now) {
+          const t = Math.min(1, (now - t0) / dur);
+          const e = 1 - Math.pow(1 - t, 3);
+          camera.position.lerpVectors(start, target, e);
+          controls.target.set(0, 0, 0);
+          if (t < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+    }
+
+    const list = document.getElementById("city-list");
+    CITIES.forEach((city) => {
+      const btn = document.createElement("button");
+      btn.className = "city-btn";
+      btn.type = "button";
+      btn.dataset.name = city.name;
+      btn.setAttribute("role", "option");
+      btn.innerHTML = `<span>${city.name}</span><small>${city.region}</small>`;
+      btn.addEventListener("click", () => selectCity(city, true));
+      list.appendChild(btn);
+    });
+
+    document.getElementById("tog-rotate").addEventListener("click", (e) => {
+      state.autoRotate = !state.autoRotate;
+      spinning = state.autoRotate && !state.paused;
+      setSwitch(e.currentTarget, state.autoRotate);
+    });
+    document.getElementById("tog-clouds").addEventListener("click", (e) => {
+      state.clouds = !state.clouds;
+      clouds.visible = state.clouds;
+      setSwitch(e.currentTarget, state.clouds);
+    });
+    document.getElementById("tog-atm").addEventListener("click", (e) => {
+      state.atmosphere = !state.atmosphere;
+      halo.visible = innerAir.visible = state.atmosphere;
+      setSwitch(e.currentTarget, state.atmosphere);
+    });
+    document.getElementById("tog-arcs").addEventListener("click", (e) => {
+      state.arcs = !state.arcs;
+      arcGroup.visible = state.arcs;
+      setSwitch(e.currentTarget, state.arcs);
+    });
+    if (reduced) {
+      state.autoRotate = false;
+      spinning = false;
+      setSwitch(document.getElementById("tog-rotate"), false);
+    }
+
+    document.getElementById("btn-reset").addEventListener("click", () => {
+      camera.position.set(0, 0.42, 4.35);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    });
+
+    const pauseBtn = document.getElementById("btn-pause");
+    function setPaused(p) {
+      state.paused = p;
+      spinning = state.autoRotate && !p;
+      pauseBtn.setAttribute("aria-pressed", String(p));
+      pauseBtn.lastChild.textContent = p ? " Resume" : " Pause";
+    }
+    pauseBtn.addEventListener("click", () => setPaused(!state.paused));
+
+    window.addEventListener("keydown", (e) => {
+      const step = 0.12;
+      if (e.code === "Space") { e.preventDefault(); setPaused(!state.paused); }
+      if (e.code === "ArrowLeft") globe.rotation.y -= step;
+      if (e.code === "ArrowRight") globe.rotation.y += step;
+      if (e.code === "ArrowUp") globe.rotation.x -= step * 0.6;
+      if (e.code === "ArrowDown") globe.rotation.x += step * 0.6;
+      if (e.key === "+" || e.key === "=") camera.position.multiplyScalar(0.94);
+      if (e.key === "-" || e.key === "_") camera.position.multiplyScalar(1.06);
+    });
+
+    controls.addEventListener("start", () => {
+      spinning = false;
+      canvas.classList.add("is-drag");
+    });
+    controls.addEventListener("end", () => {
+      spinning = state.autoRotate && !state.paused;
+      canvas.classList.remove("is-drag");
+    });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function tick() {
+      requestAnimationFrame(tick);
+      const dt = clock.getDelta();
+      const t = clock.elapsedTime;
+      if (!state.paused) {
+        if (spinning) globe.rotation.y += dt * 0.12;
+        if (state.clouds && !reduced) clouds.rotation.y += dt * 0.012;
+      }
+      pinGroup.children.forEach((obj) => {
+        if (obj.geometry === glowGeo) {
+          const s = 1 + Math.sin(t * 2.2 + obj.userData.pulse) * 0.28;
+          obj.scale.setScalar(reduced ? 1 : s);
+        }
+      });
+      controls.update();
+      placeTooltip();
+      updateHud();
+      renderer.render(scene, camera);
+    }
+    tick();
+  </script>
+</body>
+</html>

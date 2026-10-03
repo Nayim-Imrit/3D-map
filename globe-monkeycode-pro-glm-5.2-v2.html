@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Self-contained interactive realistic 3D Earth globe built with Three.js">
+  <title>Atlas Globe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #01040c;
+      --panel: rgba(4, 10, 24, 0.74);
+      --line: rgba(96, 165, 250, 0.26);
+      --text: #eef5ff;
+      --muted: #8aa0bd;
+      --blue: #60a5fa;
+      --cyan: #22d3ee;
+      --amber: #fbbf24;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 40%, #061530 0%, var(--bg) 62%);
+      color: var(--text);
+      font-family: "Manrope", system-ui, sans-serif;
+    }
+    #scene {
+      position: fixed;
+      inset: 0;
+      display: block;
+      cursor: grab;
+      touch-action: none;
+    }
+    #scene.dragging { cursor: grabbing; }
+    .hud {
+      position: fixed;
+      z-index: 3;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
+    }
+    #intro {
+      top: 22px;
+      left: 22px;
+      max-width: min(400px, calc(100vw - 44px));
+      padding: 16px 18px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: "Space Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 8px;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+    }
+    h1 {
+      font-size: clamp(21px, 4vw, 30px);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.08;
+    }
+    #intro p { margin-top: 8px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+    #readout {
+      top: 22px;
+      right: 22px;
+      padding: 14px 16px;
+      text-align: right;
+      font-family: "Space Mono", monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    #readout .row + .row { margin-top: 9px; }
+    #readout b { display: block; color: var(--text); font-size: 15px; font-weight: 400; margin-top: 2px; }
+    #card {
+      position: fixed;
+      z-index: 4;
+      width: 244px;
+      padding: 15px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(34, 211, 238, 0.12);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, calc(-100% - 18px)) scale(0.95);
+      transition: opacity 170ms ease, transform 170ms ease;
+    }
+    #card.show { opacity: 1; transform: translate(-50%, calc(-100% - 18px)) scale(1); }
+    #card .tag {
+      font-family: "Space Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--amber);
+    }
+    #card h2 { font-size: 19px; font-weight: 700; margin: 5px 0 3px; }
+    #card .coord { font-family: "Space Mono", monospace; font-size: 11.5px; color: var(--cyan); }
+    #card p { margin-top: 9px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+    #card .stat {
+      margin-top: 9px;
+      padding-top: 9px;
+      border-top: 1px solid rgba(34, 211, 238, 0.16);
+      font-family: "Space Mono", monospace;
+      font-size: 11px;
+      color: var(--blue);
+    }
+    #card .nub {
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 11px;
+      height: 11px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      transform: translateX(-50%) rotate(45deg);
+    }
+    #loader {
+      position: fixed;
+      inset: 0;
+      z-index: 6;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      transition: opacity 450ms ease;
+    }
+    #loader.done { opacity: 0; pointer-events: none; }
+    #loader .ring {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 14px;
+      border: 2px solid rgba(34, 211, 238, 0.18);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+    #loader span {
+      font-family: "Space Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--cyan);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 640px) {
+      #readout { display: none; }
+      #intro { top: 12px; left: 12px; right: 12px; max-width: none; padding: 12px 14px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #card, #loader { transition: none; }
+      #loader .ring { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="Interactive realistic 3D Earth globe"></canvas>
+
+  <div class="hud" id="intro">
+    <div class="eyebrow">Satellite view</div>
+    <h1>Atlas Globe</h1>
+    <p>Drag to rotate the Earth, scroll to zoom. Hover a marker for details. Auto-rotation pauses while dragging.</p>
+  </div>
+
+  <div class="hud" id="readout">
+    <div class="row">LATITUDE <b id="ro-lat">0.0&deg;</b></div>
+    <div class="row">LONGITUDE <b id="ro-lon">0.0&deg;</b></div>
+    <div class="row">ZOOM <b id="ro-zoom">1.0x</b></div>
+  </div>
+
+  <div id="card" role="tooltip">
+    <div class="tag">City marker</div>
+    <h2 id="c-name">City</h2>
+    <div class="coord" id="c-coord">0, 0</div>
+    <p id="c-detail"></p>
+    <div class="stat" id="c-stat"></div>
+    <span class="nub"></span>
+  </div>
+
+  <div id="loader">
+    <div>
+      <div class="ring"></div>
+      <span>Loading Earth</span>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const CITIES = [
+      { name: "New York", lat: 40.71, lon: -74.01, stat: "Pop 8.3M · Statue of Liberty" },
+      { name: "London", lat: 51.51, lon: -0.13, stat: "Pop 9.0M · Big Ben" },
+      { name: "Tokyo", lat: 35.68, lon: 139.69, stat: "Pop 14.0M · Shibuya Crossing" },
+      { name: "Sydney", lat: -33.87, lon: 151.21, stat: "Pop 5.3M · Opera House" },
+      { name: "Cairo", lat: 30.04, lon: 31.24, stat: "Pop 10.1M · Pyramids of Giza" },
+      { name: "Rio de Janeiro", lat: -22.91, lon: -43.17, stat: "Pop 6.7M · Christ the Redeemer" },
+      { name: "Dubai", lat: 25.20, lon: 55.27, stat: "Pop 3.6M · Burj Khalifa" },
+      { name: "Mauritius", lat: -20.16, lon: 57.50, stat: "Pop 1.3M · Le Morne Brabant" }
+    ];
+
+    const TEX = "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/textures/planets/";
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const R = 1.6;
+    const canvas = document.getElementById("scene");
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x01040c, 0);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 300);
+    camera.position.set(0, 0.45, 4.5);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = !reduced;
+    controls.dampingFactor = 0.075;
+    controls.minDistance = 2.4;
+    controls.maxDistance = 8.5;
+    controls.enablePan = false;
+    controls.rotateSpeed = 0.5;
+    controls.zoomSpeed = 0.75;
+
+    const sunDir = new THREE.Vector3(5, 2.2, 3.6).normalize();
+    scene.add(new THREE.AmbientLight(0x8fb8e8, 0.62));
+    const sun = new THREE.DirectionalLight(0xfff5e6, 1.7);
+    sun.position.copy(sunDir).multiplyScalar(10);
+    scene.add(sun);
+
+    const globe = new THREE.Group();
+    scene.add(globe);
+
+    const manager = new THREE.LoadingManager();
+    const loader = new THREE.TextureLoader(manager);
+    loader.setCrossOrigin("anonymous");
+
+    function fallbackTexture(base) {
+      const c = document.createElement("canvas");
+      c.width = 8; c.height = 8;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = base;
+      ctx.fillRect(0, 0, 8, 8);
+      return new THREE.CanvasTexture(c);
+    }
+
+    function load(url, srgb, fallback) {
+      return loader.loadAsync(url)
+        .then((t) => {
+          if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+          t.anisotropy = 8;
+          return t;
+        })
+        .catch(() => fallbackTexture(fallback || "#123055"));
+    }
+
+    const dayMap = await load(TEX + "earth_atmos_2048.jpg", true, "#123055");
+    const specMap = await load(TEX + "earth_specular_2048.jpg", false, "#000000");
+    const normMap = await load(TEX + "earth_normal_2048.jpg", false, "#8080ff");
+    const cloudsMap = await load(TEX + "earth_clouds_1024.png", true, "#000000");
+    const lightsMap = await load(TEX + "earth_lights_2048.png", true, "#000000");
+
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(R, 96, 64),
+      new THREE.MeshPhongMaterial({
+        map: dayMap,
+        specularMap: specMap,
+        normalMap: normMap,
+        normalScale: new THREE.Vector2(0.7, 0.7),
+        specular: new THREE.Color(0x88b8dd),
+        shininess: 16
+      })
+    );
+    globe.add(earth);
+
+    const nightMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uMap: { value: lightsMap },
+        uSun: { value: sunDir.clone() }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormalW;
+        void main() {
+          vUv = uv;
+          vNormalW = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uMap;
+        uniform vec3 uSun;
+        varying vec2 vUv;
+        varying vec3 vNormalW;
+        void main() {
+          float d = dot(normalize(vNormalW), normalize(uSun));
+          float night = smoothstep(0.12, -0.25, d);
+          vec3 lights = texture2D(uMap, vUv).rgb;
+          gl_FragColor = vec4(lights * night * 1.25, 1.0);
+        }
+      `,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false
+    });
+    globe.add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.002, 96, 64), nightMat));
+
+    const clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(R * 1.014, 64, 48),
+      new THREE.MeshLambertMaterial({
+        map: cloudsMap,
+        transparent: true,
+        opacity: 0.62,
+        depthWrite: false
+      })
+    );
+    globe.add(clouds);
+
+    const atmoVert = `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+    const atmoFrag = `
+      varying vec3 vNormal;
+      uniform vec3 uColor;
+      void main() {
+        float i = pow(0.72 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.4);
+        gl_FragColor = vec4(uColor, 1.0) * i;
+      }
+    `;
+    globe.add(new THREE.Mesh(
+      new THREE.SphereGeometry(R * 1.17, 64, 48),
+      new THREE.ShaderMaterial({
+        vertexShader: atmoVert,
+        fragmentShader: atmoFrag,
+        uniforms: { uColor: { value: new THREE.Color(0x4aa6ff) } },
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false
+      })
+    ));
+
+    const starCount = reduced ? 1000 : 2600;
+    const starPos = new Float32Array(starCount * 3);
+    const starCol = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = 28 + Math.random() * 90;
+      const t = Math.random() * Math.PI * 2;
+      const p = Math.acos(2 * Math.random() - 1);
+      starPos[i * 3] = r * Math.sin(p) * Math.cos(t);
+      starPos[i * 3 + 1] = r * Math.sin(p) * Math.sin(t);
+      starPos[i * 3 + 2] = r * Math.cos(p);
+      const s = 0.55 + Math.random() * 0.45;
+      starCol[i * 3] = s * 0.9;
+      starCol[i * 3 + 1] = s * 0.96;
+      starCol[i * 3 + 2] = s;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    starGeo.setAttribute("color", new THREE.BufferAttribute(starCol, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({
+      size: 0.16, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false
+    })));
+
+    function latLonToVec(lat, lon, r) {
+      const phi = (90 - lat) * Math.PI / 180;
+      const theta = (lon + 180) * Math.PI / 180;
+      return new THREE.Vector3(
+        -r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta)
+      );
+    }
+
+    const pinGeo = new THREE.SphereGeometry(0.024, 16, 16);
+    const pinMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    const pinGroup = new THREE.Group();
+    globe.add(pinGroup);
+    const pins = [];
+    const pulses = [];
+
+    CITIES.forEach((city) => {
+      const pos = latLonToVec(city.lat, city.lon, R + 0.012);
+      const pin = new THREE.Mesh(pinGeo, pinMat);
+      pin.position.copy(pos);
+      pin.userData = city;
+      const ring = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 16), new THREE.MeshBasicMaterial({
+        color: 0x22d3ee, transparent: true, opacity: 0.2, depthWrite: false
+      }));
+      ring.position.copy(pos);
+      pulses.push({ mesh: ring, phase: Math.random() * Math.PI * 2 });
+      pinGroup.add(pin, ring);
+      pins.push(pin);
+    });
+
+    const card = document.getElementById("card");
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const world = new THREE.Vector3();
+    const ndc = new THREE.Vector3();
+    let hovered = null;
+    let pinned = null;
+    let autoSpin = !reduced;
+
+    function facing(pin) {
+      pin.getWorldPosition(world);
+      const toCam = camera.position.clone().sub(world).normalize();
+      return world.clone().normalize().dot(toCam) > 0.1;
+    }
+
+    function show(city, pin) {
+      document.getElementById("c-name").textContent = city.name;
+      const ns = city.lat >= 0 ? "N" : "S";
+      const ew = city.lon >= 0 ? "E" : "W";
+      document.getElementById("c-coord").textContent =
+        `${Math.abs(city.lat).toFixed(2)}° ${ns} · ${Math.abs(city.lon).toFixed(2)}° ${ew}`;
+      document.getElementById("c-detail").textContent =
+        `A major anchor on the global network. Coordinates locked for ${city.name}.`;
+      document.getElementById("c-stat").textContent = city.stat;
+      card.classList.add("show");
+      hovered = pin;
+      canvas.style.cursor = "pointer";
+    }
+
+    function hide() {
+      if (pinned) return;
+      card.classList.remove("show");
+      hovered = null;
+      canvas.style.cursor = canvas.classList.contains("dragging") ? "grabbing" : "grab";
+    }
+
+    function place() {
+      if (!hovered) return;
+      if (!facing(hovered)) { hide(); return; }
+      hovered.getWorldPosition(world);
+      ndc.copy(world).project(camera);
+      card.style.left = (ndc.x * 0.5 + 0.5) * window.innerWidth + "px";
+      card.style.top = (-ndc.y * 0.5 + 0.5) * window.innerHeight + "px";
+    }
+
+    function castAt(ev) {
+      const r = canvas.getBoundingClientRect();
+      pointer.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      return raycaster.intersectObjects(pins);
+    }
+
+    canvas.addEventListener("pointermove", (ev) => {
+      const hits = castAt(ev);
+      if (hits.length && facing(hits[0].object)) show(hits[0].object.userData, hits[0].object);
+      else hide();
+    });
+    canvas.addEventListener("pointerleave", () => { if (!pinned) hide(); });
+    canvas.addEventListener("click", (ev) => {
+      const hits = castAt(ev);
+      if (hits.length && facing(hits[0].object)) {
+        pinned = hits[0].object;
+        show(hits[0].object.userData, hits[0].object);
+      } else {
+        pinned = null;
+        hide();
+      }
+    });
+
+    controls.addEventListener("start", () => {
+      autoSpin = false;
+      canvas.classList.add("dragging");
+    });
+    controls.addEventListener("end", () => {
+      autoSpin = !reduced;
+      canvas.classList.remove("dragging");
+    });
+
+    function updateReadout() {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const look = camera.position.clone().add(dir).normalize();
+      const lat = Math.asin(THREE.MathUtils.clamp(look.y, -1, 1)) * 180 / Math.PI;
+      const lon = Math.atan2(look.x, -look.z) * 180 / Math.PI;
+      document.getElementById("ro-lat").textContent = Math.abs(lat).toFixed(1) + "° " + (lat >= 0 ? "N" : "S");
+      document.getElementById("ro-lon").textContent = Math.abs(lon).toFixed(1) + "° " + (lon >= 0 ? "E" : "W");
+      document.getElementById("ro-zoom").textContent = (4.5 / camera.position.length()).toFixed(2) + "x";
+    }
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      const t = clock.elapsedTime;
+      if (autoSpin) globe.rotation.y += dt * 0.11;
+      if (!reduced) clouds.rotation.y += dt * 0.014;
+      pulses.forEach((p) => {
+        p.mesh.scale.setScalar(reduced ? 1 : 1 + Math.sin(t * 2.4 + p.phase) * 0.5);
+      });
+      controls.update();
+      place();
+      updateReadout();
+      renderer.render(scene, camera);
+    }
+    animate();
+    document.getElementById("loader").classList.add("done");
+  </script>
+</body>
+</html>
